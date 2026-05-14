@@ -2,7 +2,7 @@
   "name": "code-archaeology-record",
   "displayName": "代码考古 (Code Archaeology)",
   "description": "记录你写代码时放弃过的路——每一次删除、替换、重构，都是你的决策化石",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "zzzmaster",
   "license": "MIT",
   "engines": {
