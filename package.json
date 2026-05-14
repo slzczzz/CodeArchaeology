@@ -1,0 +1,102 @@
+{
+  "name": "decision-archaeologist",
+  "displayName": "代码考古",
+  "description": "记录你写代码时放弃过的路——每一次删除、替换、重构，都是你的决策化石",
+  "version": "0.1.0",
+  "publisher": "atomgit",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "decision",
+    "history",
+    "coding",
+    "analytics",
+    "productivity"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "decision-archaeologist",
+          "title": "代码考古",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "decision-archaeologist": [
+        {
+          "type": "webview",
+          "id": "decisionArchaeologist.view",
+          "name": "决策记录",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "decisionArchaeologist.openView",
+        "title": "打开代码考古"
+      },
+      {
+        "command": "decisionArchaeologist.clearRecords",
+        "title": "清空决策记录"
+      }
+    ],
+    "configuration": {
+      "title": "代码考古",
+      "properties": {
+        "decisionArchaeologist.toneStyle": {
+          "type": "string",
+          "default": "balanced",
+          "enum": [
+            "balanced",
+            "gentle",
+            "brutal",
+            "poetic",
+            "silent"
+          ],
+          "enumDescriptions": [
+            "幽默与鼓励平衡",
+            "温和鼓励为主",
+            "毒舌扎心风格",
+            "文艺诗意风格",
+            "只记录事实，不生成评语"
+          ],
+          "description": "评语风格"
+        },
+        "decisionArchaeologist.maxRecords": {
+          "type": "integer",
+          "default": 1000,
+          "minimum": 100,
+          "maximum": 10000,
+          "description": "最大保留记录数"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "echo Compiling TypeScript... && npx tsc -p ./",
+    "watch": "npx tsc -watch -p ./",
+    "lint": "echo No linter configured"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.3.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/atomgit/decision-archaeologist"
+  }
+}
