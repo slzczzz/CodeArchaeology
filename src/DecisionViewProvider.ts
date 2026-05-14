@@ -252,6 +252,8 @@ export class DecisionViewProvider implements vscode.WebviewViewProvider {
       background: var(--badge);
       color: var(--fg);
       opacity: 0.7;
+      flex-shrink: 0;
+      white-space: nowrap;
     }
     @media (prefers-color-scheme: light) {
       .card-detail pre { opacity: 0.9; }
@@ -393,10 +395,10 @@ export class DecisionViewProvider implements vscode.WebviewViewProvider {
           html += '    <div class="card-body">';
           html += '      <div class="card-message">' + escapeHtml(r.message) + '</div>';
           html += '      <div class="card-meta">';
+          html += '        <span class="type-label">' + label + '</span>';
           html += '        <span class="file" title="' + escapeHtml(r.filePath) + '">' + escapeHtml(fileDisplay) + '</span>';
           html += '        <span class="time">' + time + '</span>';
           if (stats) html += '        <span class="stats">' + stats + '</span>';
-          html += '        <span class="type-label">' + label + '</span>';
           html += '      </div>';
           html += '    </div>';
           html += '  </div>';
