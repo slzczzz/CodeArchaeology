@@ -289,7 +289,7 @@ export class DecisionTracker {
     added: string[],
     editInfo: { count: number; firstEditTime: number }
   ): boolean {
-    return removed.length > 0 && added.length > 0 && editInfo.count >= 3;
+    return removed.length > 0 && added.length > 0 && editInfo.count >= 4;
   }
 
   /** 检测是否需要循环提醒 */
@@ -442,87 +442,102 @@ export class DecisionTracker {
 
     // === 分类逻辑（优先级从高到低） ===
 
-    // 1. 深夜模式
+    // 1. 深夜模式（作为附加标记，不阻断后续分类）
     if (isLateNight && (removedCount > 0 || addedCount > 0)) {
       ctx.hour = hour;
       records.push(this.buildRecord(filePath, 'late-night', diff, ctx, oldContent));
     }
 
     // 2. 秒写秒删
-    if (records.length === 0 && this.isQuickUndo(removed, added, editInfo)) {
+    if (records.length <= (isLateNight ? 1 : 0) && this.isQuickUndo(removed, added, editInfo)) {
       ctx.lines = Math.floor((Date.now() - editInfo.firstEditTime) / 1000);
       records.push(this.buildRecord(filePath, 'quick-undo', diff, ctx, oldContent));
     }
 
     // 3. 回到原点
-    if (records.length === 0 && this.isBackToOrigin(filePath, doc.getText()) && removedCount > 0) {
+    if (records.length <= (isLateNight ? 1 : 0) && this.isBackToOrigin(filePath, doc.getText()) && removedCount > 0) {
       ctx.lines = removedCount;
       records.push(this.buildRecord(filePath, 'back-to-origin', diff, ctx, oldContent));
     }
 
-    // 4. 反复修改
-    if (records.length === 0 && this.isBackAndForth(removed, added, editInfo)) {
-      records.push(this.buildRecord(filePath, 'back-and-forth', diff, ctx, oldContent));
-    }
+    // 从这里开始：判断主分类（只看 diff 的形态）
+    const mainSlot = records.length;
 
-    // 5. 删测试
-    if (records.length === 0 && removedCount > 0 && addedCount === 0 && this.isTestFile(filePath)) {
+    // 4. 删测试
+    if (records.length === mainSlot && removedCount > 0 && addedCount === 0 && this.isTestFile(filePath)) {
       records.push(this.buildRecord(filePath, 'delete-test', diff, ctx, oldContent));
     }
 
-    // 6. 清理调试代码
-    if (records.length === 0 && this.isDebugCleanup(removed, added)) {
+    // 5. 清理调试代码
+    if (records.length === mainSlot && this.isDebugCleanup(removed, added)) {
       records.push(this.buildRecord(filePath, 'debug-cleanup', diff, ctx, oldContent));
     }
 
-    // 7. 加注释（注释行占新增行的多数时才触发）
-    if (records.length === 0 && removedCount === 0 && addedCount > 0) {
+    // 6. 加注释（注释行占新增行的多数时才触发）
+    if (records.length === mainSlot && removedCount === 0 && addedCount > 0) {
       if (this.isCommentAddition(added)) {
         records.push(this.buildRecord(filePath, 'add-comment', diff, ctx, oldContent));
       }
     }
 
-    // 7.5 新增代码块（纯新增且不是注释，至少 3 行）
-    if (records.length === 0 && removedCount === 0 && addedCount >= 3) {
+    // 7. 新增代码块（纯新增且不是注释，至少 3 行）
+    if (records.length === mainSlot && removedCount === 0 && addedCount >= 3) {
       records.push(this.buildRecord(filePath, 'add-code', diff, ctx, oldContent));
     }
 
     // 8. 删函数
-    if (records.length === 0 && removedCount > 0 && addedCount === 0 && ctx.fnName) {
+    if (records.length === mainSlot && removedCount > 0 && addedCount === 0 && ctx.fnName) {
       records.push(this.buildRecord(filePath, 'delete-function', diff, ctx, oldContent));
     }
 
-    // 9. 大量删除
-    if (records.length === 0 && removedCount >= 10 && addedCount === 0) {
+    // 9. 大量删除（10行以上）
+    if (records.length === mainSlot && removedCount >= 10 && addedCount === 0) {
       records.push(this.buildRecord(filePath, 'delete-bulk', diff, ctx, oldContent));
     }
 
-    // 10. 替换方案
-    if (records.length === 0 && removedCount > 0 && addedCount > 0 && removedCount <= 10 && addedCount <= 10) {
-      records.push(this.buildRecord(filePath, 'replace-solution', diff, ctx, oldContent));
-    }
-
-    // 11. 重构（大量的删+增）
-    if (records.length === 0 && removedCount > 5 && addedCount > 5) {
-      records.push(this.buildRecord(filePath, 'refactor', diff, ctx, oldContent));
-    }
-
-    // 12. 删除旧代码
-    if (records.length === 0 && removedCount > 0 && addedCount === 0 && editInfo.count > 5) {
+    // 10. 删除旧代码（改过5次以上的文件中删除）
+    if (records.length === mainSlot && removedCount > 0 && addedCount === 0 && editInfo.count > 5) {
       ctx.lifetime = Math.max(1, Math.floor((Date.now() - editInfo.firstEditTime) / 86400000)).toString();
       records.push(this.buildRecord(filePath, 'delete-old-code', diff, ctx, oldContent));
     }
 
-    // 13. 多文件改动
+    // 11. 少量删除（1-9行，不是函数/调试/测试/旧代码）
+    if (records.length === mainSlot && removedCount >= 1 && removedCount < 10 && addedCount === 0) {
+      records.push(this.buildRecord(filePath, 'delete-small', diff, ctx, oldContent));
+    }
+
+    // 12. 重构（大量的删+增，都>10行）
+    if (records.length === mainSlot && removedCount > 10 && addedCount > 10) {
+      records.push(this.buildRecord(filePath, 'refactor', diff, ctx, oldContent));
+    }
+
+    // 13. 替换方案（删和增都至少3行）
+    if (records.length === mainSlot && removedCount >= 3 && addedCount >= 3) {
+      records.push(this.buildRecord(filePath, 'replace-solution', diff, ctx, oldContent));
+    }
+
+    // 14. 微调（删≤3行 且 增≤3行的小改动）
+    if (records.length === mainSlot && removedCount > 0 && addedCount > 0 && removedCount <= 3 && addedCount <= 3) {
+      records.push(this.buildRecord(filePath, 'tweak', diff, ctx, oldContent));
+    }
+
+    // 15. 多文件改动
     const multiFileCount = this.isMultiFileBatch();
-    if (records.length === 0 && multiFileCount >= 2) {
+    if (records.length === mainSlot && multiFileCount >= 2) {
       ctx.lines = multiFileCount;
       records.push(this.buildRecord(filePath, 'multi-file', diff, ctx, oldContent));
     }
 
-    // 14. 通用
-    if (records.length === 0) {
+    // 16. 通用兜底
+    if (records.length === mainSlot) {
       records.push(this.buildRecord(filePath, 'general', diff, ctx, oldContent));
+    }
+
+    // === 附加特殊事件（可以和主事件叠加） ===
+
+    // 反复修改（第4次以上才提示，不阻断主分类）
+    if (this.isBackAndForth(removed, added, editInfo)) {
+      records.push(this.buildRecord(filePath, 'back-and-forth', diff, ctx, oldContent));
     }
 
     if (removedCount >= 10 && removedCount > this.maxDeletedLines) {

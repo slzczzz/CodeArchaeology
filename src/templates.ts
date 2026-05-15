@@ -162,6 +162,10 @@ const map: Record<ActionType, TemplateEntry[]> = {
     { type: 'tease', text: (ctx) => `写了 ${ctx.addedLines || ctx.lines} 行新代码，希望这次不用删` },
     { type: 'humor', text: () => `代码在生长，项目在膨胀` },
     { type: 'encourage', text: () => `写代码的手感来了，继续保持` },
+    { type: 'humor', text: (ctx) => `+${ctx.addedLines || ctx.lines} 行，离发版又近了一点点` },
+    { type: 'tease', text: (ctx) => `新写了 ${ctx.addedLines || ctx.lines} 行，先别高兴，看看明天还在不在` },
+    { type: 'philosophy', text: () => `每一行新代码都是对未来的承诺` },
+    { type: 'brutal', text: (ctx) => `又多了 ${ctx.addedLines || ctx.lines} 行要维护的代码，你开心就好` },
   ],
 
   // ===== 沉没成本 =====
@@ -170,6 +174,34 @@ const map: Record<ActionType, TemplateEntry[]> = {
     { type: 'tease', text: (ctx) => `当初加的 ${ctx.commentCount || 0} 条注释，现在看来都是遗言` },
     { type: 'humor', text: (ctx) => `连注释都写了 ${ctx.commentCount || 0} 条，结果还是没救回来` },
     { type: 'calm', text: (ctx) => `已删除代码块，其中包含 ${ctx.commentCount || 0} 行注释` },
+    { type: 'brutal', text: (ctx) => `注释写得那么认真（${ctx.commentCount || 0} 条），结果全删了，心疼不` },
+    { type: 'philosophy', text: () => `注释是墓志铭，代码是坟` },
+  ],
+
+  // ===== 少量删除 =====
+  'delete-small': [
+    { type: 'calm', text: (ctx) => `删了 ${ctx.deletedLines || ctx.lines} 行，小手术` },
+    { type: 'humor', text: (ctx) => `少删了 ${ctx.deletedLines || ctx.lines} 行，假装没发生` },
+    { type: 'tease', text: () => `偷偷删了几行，以为没人看到` },
+    { type: 'encourage', text: () => `精准删除，干净利落` },
+    { type: 'humor', text: () => `删代码如拔草，手感还不错` },
+    { type: 'philosophy', text: () => `少即是多，删一行少一个bug的可能` },
+    { type: 'tease', text: (ctx) => `${ctx.deletedLines || ctx.lines} 行代码消失了，好像从来没存在过` },
+    { type: 'brutal', text: () => `虽然只删了几行，但你犹豫了很久对吧` },
+  ],
+
+  // ===== 微调 =====
+  'tweak': [
+    { type: 'calm', text: (ctx) => `微调 ${ctx.fileName}` },
+    { type: 'humor', text: () => `动了一点点，差别大了一点点` },
+    { type: 'tease', text: () => `改了一行代码，debug 两小时` },
+    { type: 'encourage', text: () => `小改动，大影响` },
+    { type: 'humor', text: () => `这一行改得很纠结吧` },
+    { type: 'tease', text: () => `就改了这么一点？你盯着屏幕看了多久` },
+    { type: 'philosophy', text: () => `一字之差，天壤之别` },
+    { type: 'brutal', text: () => `改来改去就改了一行，效率感人` },
+    { type: 'humor', text: () => `修了个参数？改了个名字？总之你动了` },
+    { type: 'encourage', text: () => `细节决定成败，这一下改得好` },
   ],
 
   // ===== 多文件改动 =====
@@ -233,18 +265,16 @@ const map: Record<ActionType, TemplateEntry[]> = {
 
   // ===== 通用 =====
   'general': [
-    {
-      type: 'calm',
-      text: (ctx) => `编辑 ${ctx.fileName}，新增 ${ctx.addedLines || 0} 行，删除 ${ctx.deletedLines || 0} 行`,
-    },
-    {
-      type: 'calm',
-      text: (ctx) => `更新 ${ctx.fileName}，变更 ${Math.max(ctx.addedLines || 0, ctx.deletedLines || 0)} 行`,
-    },
-    {
-      type: 'calm',
-      text: (ctx) => `已记录 ${ctx.fileName} 的一次代码变更`,
-    },
+    { type: 'calm', text: (ctx) => `编辑 ${ctx.fileName}，新增 ${ctx.addedLines || 0} 行，删除 ${ctx.deletedLines || 0} 行` },
+    { type: 'calm', text: (ctx) => `更新 ${ctx.fileName}，变更 ${Math.max(ctx.addedLines || 0, ctx.deletedLines || 0)} 行` },
+    { type: 'calm', text: (ctx) => `已记录 ${ctx.fileName} 的一次代码变更` },
+    { type: 'humor', text: () => `又动了点什么，说不清但就是改了` },
+    { type: 'tease', text: () => `这次改动不太好归类，但我记下来了` },
+    { type: 'encourage', text: (ctx) => `${ctx.fileName} 又进步了一点` },
+    { type: 'humor', text: () => `改了，但又好像没改多少` },
+    { type: 'philosophy', text: () => `每一次保存都是一个微小的决定` },
+    { type: 'tease', text: (ctx) => `${ctx.fileName} 被你摸了一下` },
+    { type: 'humor', text: () => `这波操作我看不太懂，但尊重` },
   ],
 };
 
@@ -297,6 +327,8 @@ export function generateMessage(
       'add-comment': '添加注释',
       'add-code': '新增代码',
       'sunk-cost': '沉没成本',
+      'delete-small': '少量删除',
+      'tweak': '微调',
       'multi-file': '多文件改动',
       'quick-undo': '快速撤销',
       'refactor': '重构',

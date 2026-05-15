@@ -15,6 +15,8 @@ export type ActionType =
   | 'add-comment'       // 加注释
   | 'add-code'          // 新增代码块
   | 'sunk-cost'         // 沉没成本
+  | 'delete-small'      // 少量删除
+  | 'tweak'             // 微调
   | 'multi-file'        // 多文件改动
   | 'quick-undo'        // 秒写秒删
   | 'refactor'          // 重构
