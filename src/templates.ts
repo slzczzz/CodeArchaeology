@@ -143,6 +143,90 @@ const map: Record<ActionType, TemplateEntry[]> = {
     { type: 'brutal', text: () => `测试覆盖率 -${Math.floor(Math.random() * 10) + 1}%` },
   ],
 
+  // ===== 修改测试 =====
+  'test-edit': [
+    { type: 'encourage', text: () => `修改测试中，代码越来越经得起考验` },
+    { type: 'calm', text: (ctx) => `更新测试 ${ctx.fileName}` },
+    { type: 'humor', text: () => `测试又改了，这次是修测试还是修代码` },
+    { type: 'tease', text: () => `先改测试再改代码，还是先改代码再改测试` },
+    { type: 'philosophy', text: () => `测试是你和未来之间的契约` },
+    { type: 'brutal', text: () => `测试改来改去，小心最后变成“测试配代码”` },
+    { type: 'encourage', text: () => `改测试说明你在认真对待质量` },
+    { type: 'calm', text: (ctx) => `${ctx.fileName} 的测试用例已更新` },
+  ],
+
+  // ===== 删除注释 =====
+  'delete-comment': [
+    { type: 'tease', text: (ctx) => `删了 ${ctx.commentCount || ctx.lines} 条注释，代码瞬间“安静”了` },
+    { type: 'humor', text: () => `注释被删了，未来接手的人会感谢你的` },
+    { type: 'philosophy', text: () => `注释会过期，代码也会，只有真相不变` },
+    { type: 'calm', text: (ctx) => `删除 ${ctx.commentCount || ctx.lines} 行注释` },
+    { type: 'brutal', text: () => `注释全删？那你最好把代码写到“自解释”的水平` },
+    { type: 'encourage', text: () => `删除无用注释，让代码更清爽` },
+    { type: 'humor', text: () => `“这段代码很重要” —— 然后注释被删了` },
+    { type: 'tease', text: () => `注释少了，代码的“解释权”就归你了` },
+  ],
+
+  // ===== 复制粘贴 =====
+  'copy-paste': [
+    { type: 'tease', text: () => `这段代码有点眼熟，是不是刚从别处复制过来的` },
+    { type: 'humor', text: (ctx) => `${ctx.fileName} 出现了似曾相识的代码，复制粘贴大法好` },
+    { type: 'brutal', text: () => `又复制了一段，重复代码是维护者的噩梦` },
+    { type: 'encourage', text: () => `复用是好事，但如果能抽成公共函数就更好了` },
+    { type: 'philosophy', text: () => `每一段重复代码，都在提醒你抽象的重要性` },
+    { type: 'calm', text: () => `检测到重复代码块` },
+    { type: 'humor', text: () => `Ctrl+C / Ctrl+V，当代程序员的双手剑` },
+    { type: 'tease', text: () => `建议把这段抽出来，别让未来的你加班` },
+  ],
+
+  // ===== 仅格式调整 =====
+  'format-only': [
+    { type: 'calm', text: (ctx) => `仅调整了格式，${ctx.fileName} 的逻辑没有变化` },
+    { type: 'humor', text: () => `这波改动肉眼看不见，但代码确实“整容”了` },
+    { type: 'tease', text: () => `改了格式也算改动？行吧，我记下了` },
+    { type: 'encourage', text: () => `保持格式整洁，是专业程序员的基本修养` },
+    { type: 'philosophy', text: () => `格式是代码的衣着，逻辑是代码的灵魂` },
+    { type: 'brutal', text: () => `只改了空格/缩进，你确定这算一次提交？` },
+    { type: 'calm', text: (ctx) => `${ctx.fileName} 完成一次格式规范化` },
+    { type: 'humor', text: () => `格式强迫症又犯了，这次满意了吧` },
+  ],
+
+  // ===== 修复小问题 =====
+  'fix-typo': [
+    { type: 'calm', text: (ctx) => `修复 ${ctx.fileName} 中的小笔误` },
+    { type: 'humor', text: () => `错别字被消灭了，代码又文明了一点` },
+    { type: 'tease', text: () => `这种小错误，是不是又熬夜写的` },
+    { type: 'encourage', text: () => `细节修复，积少成多` },
+    { type: 'philosophy', text: () => `一个字符的差别，往往藏着最深的 bug` },
+    { type: 'brutal', text: () => `就改了个拼写，下次别写错了` },
+    { type: 'humor', text: () => `打字速度和手速不匹配的又一证据` },
+    { type: 'calm', text: (ctx) => `修正 ${ctx.lines} 处小问题` },
+  ],
+
+  // ===== 配置修改 =====
+  'config-change': [
+    { type: 'calm', text: (ctx) => `更新配置 ${ctx.fileName}` },
+    { type: 'humor', text: () => `改配置一时爽，排查配置两行泪` },
+    { type: 'tease', text: () => `又动配置了，这次环境不会挂吧` },
+    { type: 'encourage', text: () => `配置改动小而精，稳` },
+    { type: 'philosophy', text: () => `配置是代码与运行环境之间的桥梁` },
+    { type: 'brutal', text: () => `改配置之前，记得看变更日志` },
+    { type: 'calm', text: (ctx) => `${ctx.fileName} 配置项已调整` },
+    { type: 'humor', text: () => `配置一改，行为全变，神奇` },
+  ],
+
+  // ===== 清理待办标记 =====
+  'todo-cleanup': [
+    { type: 'encourage', text: (ctx) => `清理了 ${ctx.lines} 处 TODO/FIXME，债在慢慢还` },
+    { type: 'humor', text: () => `TODO 又少了一处，但“技术债”还没还完` },
+    { type: 'calm', text: () => `清理待办标记` },
+    { type: 'tease', text: () => `删掉 TODO 不等于做完，但至少眼不见心不烦` },
+    { type: 'philosophy', text: () => `每一个 TODO 都是过去留下的时间胶囊` },
+    { type: 'brutal', text: () => `TODO 删了，功能做了吗` },
+    { type: 'encourage', text: () => `消灭 TODO 的感觉，和消灭 bug 一样爽` },
+    { type: 'humor', text: () => `“TODO: 稍后处理” —— 稍后就是现在` },
+  ],
+
   // ===== 加注释 =====
   'add-comment': [
     { type: 'humor', text: (ctx) => `你写了一段注释，看来你也怕未来"自己」看不懂` },
@@ -324,8 +408,15 @@ export function generateMessage(
       'late-night': '深夜编码',
       'start-working': '开始编辑',
       'delete-test': '删除测试',
+      'test-edit': '修改测试',
+      'delete-comment': '删除注释',
       'add-comment': '添加注释',
       'add-code': '新增代码',
+      'copy-paste': '复制粘贴',
+      'format-only': '格式调整',
+      'fix-typo': '修复小问题',
+      'config-change': '配置修改',
+      'todo-cleanup': '清理待办',
       'sunk-cost': '沉没成本',
       'delete-small': '少量删除',
       'tweak': '微调',

@@ -40,8 +40,8 @@ export class DecisionViewProvider implements vscode.WebviewViewProvider {
     // 监听来自 Webview 的消息
     webviewView.webview.onDidReceiveMessage((message) => {
       switch (message.command) {
-        case 'clear':
-          this.store.clear();
+        case 'requestClear':
+          this.confirmClear();
           break;
         case 'openFile':
           this.openFile(message.filePath);
@@ -56,6 +56,20 @@ export class DecisionViewProvider implements vscode.WebviewViewProvider {
     this.refresh();
   }
 
+  /** 通过原生模态确认后清空记录 */
+  private async confirmClear(): Promise<void> {
+    const choice = await vscode.window.showWarningMessage(
+      '确定清空所有决策记录吗？此操作不可撤销。',
+      { modal: true },
+      '清空'
+    );
+    if (choice !== '清空') {
+      return;
+    }
+    this.store.clear();
+    vscode.window.showInformationMessage('决策记录已清空');
+  }
+
   /** 刷新视图 */
   private refresh(): void {
     if (!this._view) return;
@@ -64,6 +78,7 @@ export class DecisionViewProvider implements vscode.WebviewViewProvider {
       command: 'updateRecords',
       records,
       totalCount: this.store.getCount(),
+      summary: this.store.getSummary(),
     });
   }
 
@@ -146,6 +161,32 @@ export class DecisionViewProvider implements vscode.WebviewViewProvider {
     .actions button:hover {
       background: var(--badge);
       color: var(--fg);
+    }
+    .toolbar {
+      padding: 8px 12px 4px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+    .toolbar input {
+      flex: 1;
+      min-width: 0;
+      background: var(--card-bg);
+      color: var(--fg);
+      border: 1px solid var(--card-border);
+      border-radius: 4px;
+      padding: 4px 8px;
+      font-size: 12px;
+    }
+    .toolbar input:focus {
+      outline: none;
+      border-color: var(--link);
+    }
+    .summary-line {
+      font-size: 11px;
+      color: var(--secondary);
+      white-space: nowrap;
     }
     .content {
       flex: 1;
@@ -265,11 +306,16 @@ export class DecisionViewProvider implements vscode.WebviewViewProvider {
     <div class="title">
       🦴 代码考古
       <span class="badge" id="countBadge">0</span>
+      <span class="badge" id="todayBadge">今日 0</span>
     </div>
     <div class="actions">
       <button id="refreshBtn" title="刷新">🔄</button>
       <button id="clearBtn" title="清空记录">🗑️</button>
     </div>
+  </div>
+  <div class="toolbar">
+    <input id="filterInput" type="text" placeholder="筛选文件或事件类型">
+    <span class="summary-line" id="summaryLine"></span>
   </div>
   <div class="content" id="recordList">
     <div class="empty">
@@ -299,8 +345,15 @@ export class DecisionViewProvider implements vscode.WebviewViewProvider {
         'late-night': '🌙',
         'start-working': '🚀',
         'delete-test': '🧪',
+        'test-edit': '🧪',
+        'delete-comment': '🗨️',
         'add-comment': '📝',
         'add-code': '➕',
+        'copy-paste': '📋',
+        'format-only': '🎨',
+        'fix-typo': '🔤',
+        'config-change': '⚙️',
+        'todo-cleanup': '🧾',
         'sunk-cost': '💬',
         'delete-small': '✂️',
         'tweak': '🔧',
@@ -353,8 +406,15 @@ export class DecisionViewProvider implements vscode.WebviewViewProvider {
           'late-night': '深夜编码',
           'start-working': '开始工作',
           'delete-test': '删测试',
+          'test-edit': '改测试',
+          'delete-comment': '删注释',
           'add-comment': '加注释',
           'add-code': '新增代码',
+          'copy-paste': '复制粘贴',
+          'format-only': '格式调整',
+          'fix-typo': '修小错',
+          'config-change': '改配置',
+          'todo-cleanup': '清 TODO',
           'sunk-cost': '沉没成本',
           'delete-small': '少量删除',
           'tweak': '微调',
@@ -374,17 +434,38 @@ export class DecisionViewProvider implements vscode.WebviewViewProvider {
         return parts[parts.length - 1] || fp;
       }
 
-      function renderRecords(records) {
-        if (!records || records.length === 0) {
-          list.innerHTML = '<div class="empty"><span class="big-emoji">🦕</span><div>还没有决策记录</div><div class="hint">保存文件时，我会自动记录你的每一次决策</div></div>';
-          badge.textContent = '0';
+      let allRecords = [];
+      let summary = { today: 0, totalDeleted: 0, totalAdded: 0 };
+
+      function renderRecords(records, nextSummary) {
+        allRecords = records || [];
+        summary = nextSummary || summary;
+        badge.textContent = allRecords.length;
+        const todayBadge = document.getElementById('todayBadge');
+        if (todayBadge) todayBadge.textContent = '今日 ' + summary.today;
+        const summaryLine = document.getElementById('summaryLine');
+        if (summaryLine) summaryLine.textContent = '累计删 ' + summary.totalDeleted + ' 行 / 增 ' + summary.totalAdded + ' 行';
+        renderList();
+      }
+
+      function renderList() {
+        const input = document.getElementById('filterInput');
+        const q = (input && input.value || '').trim().toLowerCase();
+        const filtered = allRecords.filter(r => {
+          if (!q) return true;
+          const file = (r.fileName || '').toLowerCase();
+          const type = getTypeLabel(r.actionType).toLowerCase();
+          return file.includes(q) || type.includes(q);
+        });
+
+        if (!filtered || filtered.length === 0) {
+          const emptyHint = q ? '没有匹配的记录' : '还没有决策记录';
+          list.innerHTML = '<div class="empty"><span class="big-emoji">🦕</span><div>' + emptyHint + '</div><div class="hint">保存文件时，我会自动记录你的每一次决策</div></div>';
           return;
         }
 
-        badge.textContent = records.length;
-
         let html = '';
-        for (const r of records) {
+        for (const r of filtered) {
           const emoji = getEmoji(r.actionType);
           const time = formatDate(r.timestamp);
           const label = getTypeLabel(r.actionType);
@@ -416,10 +497,9 @@ export class DecisionViewProvider implements vscode.WebviewViewProvider {
         }
         list.innerHTML = html;
 
-        // 点击卡片展开详情 / 双击文件名打开文件
+        // 点击卡片展开详情 / 点击文件名打开文件
         list.querySelectorAll('.card').forEach(card => {
           card.addEventListener('click', (e) => {
-            // 如果点了文件名链接，不切换展开
             if (e.target.classList.contains('file')) return;
             card.classList.toggle('expanded');
           });
@@ -443,7 +523,7 @@ export class DecisionViewProvider implements vscode.WebviewViewProvider {
         const msg = event.data;
         switch (msg.command) {
           case 'updateRecords':
-            renderRecords(msg.records);
+            renderRecords(msg.records, msg.summary);
             break;
         }
       });
@@ -453,10 +533,9 @@ export class DecisionViewProvider implements vscode.WebviewViewProvider {
         vscode.postMessage({ command: 'refresh' });
       });
       document.getElementById('clearBtn').addEventListener('click', () => {
-        if (confirm('确定清空所有决策记录吗？')) {
-          vscode.postMessage({ command: 'clear' });
-        }
+        vscode.postMessage({ command: 'requestClear' });
       });
+      document.getElementById('filterInput').addEventListener('input', renderList);
     })();
   </script>
 </body>

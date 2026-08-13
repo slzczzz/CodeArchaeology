@@ -1,12 +1,9 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { DecisionRecord } from './types';
+import { DecisionRecord, DecisionSummary } from './types';
 
-/**
- * 决策存储
- * 将决策记录持久化到本地 JSON 文件
- */
+/** 决策存储：将决策记录持久化到本地 JSON 文件 */
 export class DecisionStore {
   private records: DecisionRecord[] = [];
   private storagePath: string;
@@ -19,7 +16,6 @@ export class DecisionStore {
     this.maxRecords = vscode.workspace.getConfiguration('decisionArchaeologist').get('maxRecords', 1000);
     this.load();
 
-    // 监听配置变化
     context.subscriptions.push(
       vscode.workspace.onDidChangeConfiguration(e => {
         if (e.affectsConfiguration('decisionArchaeologist.maxRecords')) {
@@ -33,7 +29,6 @@ export class DecisionStore {
   addRecord(record: DecisionRecord): void {
     this.records.push(record);
 
-    // 限制最大记录数
     if (this.records.length > this.maxRecords) {
       this.records = this.records.slice(-this.maxRecords);
     }
@@ -57,6 +52,25 @@ export class DecisionStore {
     this.records = [];
     this.save();
     this._onDidUpdate.fire();
+  }
+
+  /** 汇总今日记录与增删行数 */
+  getSummary(): DecisionSummary {
+    const now = new Date();
+    const todayKey = this.toDayKey(now);
+    let today = 0;
+    let totalDeleted = 0;
+    let totalAdded = 0;
+
+    for (const record of this.records) {
+      if (this.toDayKey(new Date(record.timestamp)) === todayKey) {
+        today++;
+      }
+      totalDeleted += record.deletedLines;
+      totalAdded += record.addedLines;
+    }
+
+    return { today, totalDeleted, totalAdded };
   }
 
   /** 从磁盘加载 */
@@ -86,5 +100,10 @@ export class DecisionStore {
     } catch (e) {
       // 静默失败
     }
+  }
+
+  private toDayKey(date: Date): string {
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
   }
 }
