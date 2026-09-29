@@ -347,6 +347,152 @@ const map: Record<ActionType, TemplateEntry[]> = {
     { type: 'humor', text: (ctx) => `你再改一次试试，我就……算了你肯定会再改的` },
   ],
 
+  // ===== 删除防御性代码 =====
+  'delete-guard': [
+    { type: 'brutal', text: (ctx) => `删掉了「${ctx.guardKind || '判断'}」——你是在赌它不会崩` },
+    { type: 'tease', text: (ctx) => `${ctx.guardKind || '判断'} 被你请走了，希望线上也这么乐观` },
+    { type: 'humor', text: () => `删了判空，代码变短了，报错日志变长了` },
+    { type: 'philosophy', text: () => `防御性代码是写给未来的自己的保险单` },
+    { type: 'calm', text: (ctx) => `移除 ${ctx.guardKind || '防御性判断'}` },
+    { type: 'brutal', text: () => `这段判断曾经救过你很多次，你忘了吗` },
+    { type: 'humor', text: () => `删掉 ${'空值判断'} 那一刻，你相信了类型系统` },
+    { type: 'encourage', text: () => `如果上游保证不为空，删掉确实更清爽` },
+  ],
+
+  // ===== 删除错误处理 =====
+  'delete-error-handling': [
+    { type: 'brutal', text: () => `把 try/catch 删了？祝你运气一直好` },
+    { type: 'tease', text: () => `错误处理没了，错误还在` },
+    { type: 'humor', text: () => `异常现在可以直接冲到用户脸上了` },
+    { type: 'philosophy', text: () => `不加 catch，是相信代码；加了 catch，是了解现实` },
+    { type: 'calm', text: () => `移除错误处理逻辑` },
+    { type: 'brutal', text: () => `删了异常上报，出事的时候没人知道是你` },
+    { type: 'encourage', text: () => `如果异常由外层统一处理，这里删掉也合理` },
+  ],
+
+  // ===== 清空文件 =====
+  'empty-file': [
+    { type: 'brutal', text: (ctx) => `把 ${ctx.fileName} 清空了，${ctx.deletedLines || ctx.lines} 行全没了` },
+    { type: 'humor', text: (ctx) => `${ctx.fileName} 归零，从今天开始重新做人` },
+    { type: 'tease', text: () => `一键清空，这是最简单的一次重构` },
+    { type: 'philosophy', text: () => `空文件里装着一万种可能` },
+    { type: 'encourage', text: () => `推倒重来也是一种勇气` },
+    { type: 'calm', text: (ctx) => `${ctx.fileName} 已被清空` },
+  ],
+
+  // ===== 写下 TODO =====
+  'add-todo': [
+    { type: 'humor', text: (ctx) => `又立了个 ${ctx.marker || 'TODO'}，我先帮你记着` },
+    { type: 'tease', text: (ctx) => `${ctx.marker || 'TODO'}：以后再说的那个「以后」，它来了吗` },
+    { type: 'brutal', text: (ctx) => `${ctx.marker || 'TODO'} 就是写给未来的自己的欠条` },
+    { type: 'philosophy', text: () => `每一个 TODO 都是此刻对自己的诚实` },
+    { type: 'calm', text: (ctx) => `新增 ${ctx.marker || 'TODO'} 标记` },
+    { type: 'humor', text: () => `技术债 +1，利息另算` },
+    { type: 'encourage', text: () => `先记下来，比假装没看见强` },
+  ],
+
+  // ===== 依赖变更 =====
+  'dependency-change': [
+    { type: 'humor', text: (ctx) => `又动了依赖${ctx.dependency ? `：${ctx.dependency}` : ''}，node_modules 又要胖一圈` },
+    { type: 'tease', text: (ctx) => `${ctx.dependency || '这个包'}能自己写吗？当然不能` },
+    { type: 'brutal', text: () => `加依赖一时爽，升级火葬场` },
+    { type: 'philosophy', text: () => `依赖是这个项目向外伸出的手` },
+    { type: 'calm', text: (ctx) => `更新依赖清单${ctx.dependency ? `：${ctx.dependency}` : ''}` },
+    { type: 'humor', text: () => `一条命令装进来，一周时间拆出去` },
+    { type: 'encourage', text: () => `能不重复造轮子，是成熟的表现` },
+  ],
+
+  // ===== 整理 import =====
+  'import-change': [
+    { type: 'calm', text: () => `整理了导入语句` },
+    { type: 'humor', text: () => `import 又变了，IDE 的功劳` },
+    { type: 'tease', text: () => `改的都是 import，代码本体一个字没动` },
+    { type: 'encourage', text: () => `清理无用导入，值得表扬` },
+    { type: 'philosophy', text: () => `整理依赖关系，就是整理思路` },
+    { type: 'brutal', text: () => `只动了 import，也算一次保存` },
+  ],
+
+  // ===== 大范围重命名 =====
+  'rename-refactor': [
+    { type: 'humor', text: () => `一次重命名，改了十几处，手速惊人` },
+    { type: 'encourage', text: () => `改名字改对了，代码就能自己说话了` },
+    { type: 'tease', text: () => `又想到了一个更好的名字，对吧` },
+    { type: 'philosophy', text: () => `命名是编程里最难的两件事之一` },
+    { type: 'calm', text: () => `完成一次批量重命名` },
+    { type: 'brutal', text: () => `名字换了，逻辑没变，但你心里舒服了` },
+  ],
+
+  // ===== 注释掉代码 =====
+  'comment-out-code': [
+    { type: 'tease', text: () => `不删，先注释掉——反正也不会再打开` },
+    { type: 'humor', text: () => `代码还在，只是闭上了眼睛` },
+    { type: 'brutal', text: () => `注释掉的代码，最后都变成了垃圾` },
+    { type: 'philosophy', text: () => `留着是舍不得，删掉才是放下` },
+    { type: 'calm', text: (ctx) => `注释掉 ${ctx.lines} 行代码` },
+    { type: 'humor', text: () => `git 会记得的，不用留注释` },
+    { type: 'encourage', text: () => `先留着观察一下，稳妥` },
+  ],
+
+  // ===== 取消注释 =====
+  'uncomment-code': [
+    { type: 'humor', text: () => `它醒了，被注释封印的代码回来了` },
+    { type: 'tease', text: () => `当初为什么要注释掉？现在又为什么要放出来` },
+    { type: 'philosophy', text: () => `有些代码只是睡了一觉` },
+    { type: 'calm', text: (ctx) => `取消注释 ${ctx.lines} 行代码` },
+    { type: 'brutal', text: () => `放出来之前，先确认它还能跑` },
+    { type: 'encourage', text: () => `看来当时的决定，现在有答案了` },
+  ],
+
+  // ===== 函数反复增删 =====
+  'function-churn': [
+    { type: 'brutal', text: (ctx) => `${ctx.fnName || '这个函数'} 写了又删、删了又写，你俩有仇吗` },
+    { type: 'humor', text: (ctx) => `${ctx.fnName || '这个函数'} 又回来了，这已经是第 N 次了` },
+    { type: 'tease', text: (ctx) => `${ctx.fnName || '它'} 在你手里反复横跳` },
+    { type: 'philosophy', text: () => `反复增删，说明你一直在找那个对的设计` },
+    { type: 'calm', text: (ctx) => `${ctx.fnName || '函数'} 再次被增删` },
+    { type: 'encourage', text: () => `试错本身就是在逼近正确答案` },
+  ],
+
+  // ===== 连续凌晨编码 =====
+  'late-night-streak': [
+    { type: 'brutal', text: (ctx) => `连续 ${ctx.streak || 3} 天凌晨改代码了，你的身体在抗议` },
+    { type: 'tease', text: (ctx) => `${ctx.streak || 3} 天凌晨，这已经不是熬夜是时差了` },
+    { type: 'philosophy', text: () => `深夜的坚持，白天会以另一种方式还回来` },
+    { type: 'calm', text: (ctx) => `已连续 ${ctx.streak || 3} 天在凌晨编码` },
+    { type: 'humor', text: (ctx) => `${ctx.streak || 3} 个凌晨了，你和月亮谁先睡` },
+    { type: 'encourage', text: () => `拼是拼，但记得留一点给明天的自己` },
+  ],
+
+  // ===== 模式发现 =====
+  'pattern-discovery': [
+    { type: 'humor', text: (ctx) => `你第 ${ctx.patternCount || 5} 次在${ctx.weekday || '这天'}${ctx.timeBucket || ''}推翻自己的代码了` },
+    { type: 'tease', text: (ctx) => `${ctx.weekday || '每周'}${ctx.timeBucket || ''}的你格外喜欢重来` },
+    { type: 'philosophy', text: () => `习惯比记忆更诚实` },
+    { type: 'calm', text: (ctx) => `模式已记录：${ctx.weekday || ''}${ctx.timeBucket || ''} 的推翻行为出现 ${ctx.patternCount || 5} 次` },
+    { type: 'brutal', text: () => `这不是巧合，这是你的作息在决定代码质量` },
+    { type: 'encourage', text: () => `发现了节奏，就能改掉节奏` },
+  ],
+
+  // ===== 自相矛盾 =====
+  'self-contradiction': [
+    { type: 'brutal', text: () => `这段代码你之前删过，现在又把它请回来了` },
+    { type: 'tease', text: () => `上周删它的时候，你很果断` },
+    { type: 'humor', text: () => `代码记得你做过什么，我也记得` },
+    { type: 'philosophy', text: () => `删了又写，写了又删，答案藏在反复之间` },
+    { type: 'calm', text: (ctx) => `${ctx.fileName} 写回了之前删除过的代码块` },
+    { type: 'encourage', text: () => `能捡回来，说明你当时删得不够彻底` },
+  ],
+
+  // ===== 空手而归 =====
+  'empty-handed': [
+    { type: 'tease', text: (ctx) => `打开了 ${ctx.fileName}，看了 ${ctx.lifetime || '一会儿'}，什么都没写就走了` },
+    { type: 'humor', text: (ctx) => `${ctx.fileName} 被打开又关上，它应该也习惯了` },
+    { type: 'philosophy', text: () => `有时候看一眼就够了，动手反而坏事` },
+    { type: 'calm', text: (ctx) => `${ctx.fileName} 打开 ${ctx.lifetime || '一段时间'}，无改动` },
+    { type: 'brutal', text: () => `点开、发呆、关掉——今日效率写照` },
+    { type: 'encourage', text: () => `不动手，也是一种判断` },
+  ],
+
   // ===== 通用 =====
   'general': [
     { type: 'calm', text: (ctx) => `编辑 ${ctx.fileName}，新增 ${ctx.addedLines || 0} 行，删除 ${ctx.deletedLines || 0} 行` },
@@ -425,6 +571,20 @@ export function generateMessage(
       'refactor': '重构',
       'delete-old-code': '清理旧代码',
       'back-and-forth': '反复修改',
+      'delete-guard': '删除防御性代码',
+      'delete-error-handling': '删除错误处理',
+      'empty-file': '清空文件',
+      'add-todo': '新增待办',
+      'dependency-change': '依赖变更',
+      'import-change': '整理导入',
+      'rename-refactor': '批量重命名',
+      'comment-out-code': '注释掉代码',
+      'uncomment-code': '取消注释',
+      'function-churn': '函数反复增删',
+      'late-night-streak': '连续凌晨编码',
+      'pattern-discovery': '模式发现',
+      'self-contradiction': '自相矛盾',
+      'empty-handed': '空手而归',
       'general': '编辑代码',
     };
     return `[${actionNames[actionType]}] ${ctx.fileName}`;

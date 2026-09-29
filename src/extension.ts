@@ -2,6 +2,10 @@ import * as vscode from 'vscode';
 import { DecisionTracker } from './DecisionTracker';
 import { DecisionStore } from './DecisionStore';
 import { DecisionViewProvider } from './DecisionViewProvider';
+import { onConfigChanged } from './config';
+
+/** 扩展激活期间持有的存储实例，用于停用时落盘 */
+let activeStore: DecisionStore | undefined;
 
 /** 激活扩展 */
 export function activate(context: vscode.ExtensionContext): void {
@@ -9,10 +13,15 @@ export function activate(context: vscode.ExtensionContext): void {
 
   // 初始化存储
   const store = new DecisionStore(context);
+  activeStore = store;
+  context.subscriptions.push(store);
 
   // 初始化追踪器
   const tracker = new DecisionTracker(store);
   context.subscriptions.push(tracker);
+
+  // 配置变更时同步给追踪器
+  context.subscriptions.push(onConfigChanged((config) => tracker.updateConfig(config)));
 
   // 注册 Webview View Provider（侧边栏视图）
   const provider = new DecisionViewProvider(context, store);
@@ -27,9 +36,23 @@ export function activate(context: vscode.ExtensionContext): void {
   // 监听文档保存事件
   context.subscriptions.push(
     vscode.workspace.onDidSaveTextDocument((doc) => {
-      // 只监听文件系统中的文件，跳过临时文件、git 等
-      if (doc.uri.scheme === 'file' && !doc.fileName.includes('.git')) {
+      // 仅处理真实文件，排除项（node_modules / out / dist 等）在追踪器内部过滤
+      if (doc.uri.scheme === 'file') {
         tracker.onDidSaveTextDocument(doc);
+      }
+    })
+  );
+
+  // 监听文档打开 / 关闭，用于“空手而归”
+  context.subscriptions.push(
+    vscode.workspace.onDidOpenTextDocument((doc) => {
+      if (doc.uri.scheme === 'file') {
+        tracker.onDidOpenTextDocument(doc);
+      }
+    }),
+    vscode.workspace.onDidCloseTextDocument((doc) => {
+      if (doc.uri.scheme === 'file') {
+        tracker.onDidCloseTextDocument(doc);
       }
     })
   );
@@ -65,5 +88,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
 /** 停用扩展 */
 export function deactivate(): void {
+  activeStore?.dispose();
+  activeStore = undefined;
   console.log('[代码考古] 已停用');
 }

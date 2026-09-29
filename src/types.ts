@@ -1,35 +1,55 @@
 /** 决策事件类型 */
 export type ActionType =
+  // ── 删除类 ──
   | 'delete-function'
   | 'delete-bulk'
-  | 'replace-solution'
-  | 'back-to-origin'
-  | 'record-break'
-  | 'loop-reminder'
-  | 'abandonment-cost'
+  | 'delete-small'
+  | 'delete-test'
+  | 'delete-old-code'
+  | 'delete-comment'
+  | 'delete-guard'
+  | 'delete-error-handling'
+  | 'empty-file'
   | 'debug-cleanup'
+  | 'todo-cleanup'
+  // ── 新增类 ──
+  | 'add-code'
+  | 'add-comment'
+  | 'add-todo'
+  // ── 修改类 ──
+  | 'replace-solution'
+  | 'refactor'
+  | 'tweak'
+  | 'fix-typo'
+  | 'format-only'
+  | 'config-change'
+  | 'dependency-change'
+  | 'import-change'
+  | 'rename-refactor'
+  | 'test-edit'
+  | 'copy-paste'
+  | 'comment-out-code'
+  | 'uncomment-code'
+  | 'function-churn'
+  // ── 时间类 ──
   | 'early-morning'
   | 'late-night'
   | 'start-working'
-  | 'delete-test'
-  | 'test-edit'
-  | 'add-comment'
-  | 'delete-comment'
-  | 'add-code'
-  | 'copy-paste'
-  | 'format-only'
-  | 'fix-typo'
-  | 'config-change'
-  | 'todo-cleanup'
-  | 'sunk-cost'
-  | 'delete-small'
-  | 'tweak'
-  | 'multi-file'
+  // ── 行为类 ──
+  | 'back-to-origin'
   | 'quick-undo'
-  | 'refactor'
-  | 'delete-old-code'
   | 'back-and-forth'
-  | 'general';
+  | 'loop-reminder'
+  | 'abandonment-cost'
+  | 'record-break'
+  | 'sunk-cost'
+  | 'multi-file'
+  | 'general'
+  // ── 元事件（跨会话/统计洞察）──
+  | 'late-night-streak'
+  | 'pattern-discovery'
+  | 'self-contradiction'
+  | 'empty-handed';
 
 /** 一条决策记录 */
 export interface DecisionRecord {
@@ -76,6 +96,20 @@ export interface TemplateContext {
   commentCount?: number;
   language?: string;
   duplicated?: number;
+  /** 连续凌晨编码天数 */
+  streak?: number;
+  /** 星期几（如“周四”） */
+  weekday?: string;
+  /** 时段（如“下午”） */
+  timeBucket?: string;
+  /** 同一模式重复次数 */
+  patternCount?: number;
+  /** TODO/FIXME 等标记名 */
+  marker?: string;
+  /** 被删防御代码的类型描述 */
+  guardKind?: string;
+  /** 依赖包名 */
+  dependency?: string;
 }
 
 /** 侧边栏汇总信息 */

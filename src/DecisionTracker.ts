@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { DiffResult, DiffHunk, DecisionRecord, ActionType, TemplateContext } from './types';
 import { generateMessage } from './templates';
 import { DecisionStore } from './DecisionStore';
+import { TrackerConfig, isExcluded, readConfig } from './config';
 
 interface FileMeta {
   firstSeenAt: number;
@@ -25,6 +26,9 @@ const MYERS_AREA_LIMIT = 1_000_000;
 
 /** 决策追踪器：监听文件保存事件，计算差异，分类事件，生成记录 */
 export class DecisionTracker {
+  /** 星期几中文标签 */
+  private static readonly WEEKDAY_LABELS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+
   /** 文件内容快照 */
   private snapshots = new Map<string, string>();
 
@@ -40,14 +44,75 @@ export class DecisionTracker {
   /** 当天是否已经记录过开工类事件 */
   private introRecordDay?: string;
 
+  /** 已打开但尚未保存改动的文档（用于“空手而归”） */
+  private openedDocs = new Map<string, { openedAt: number; saved: boolean }>();
+
+  /** 函数增删历史：文件名 → 函数名 → 统计 */
+  private functionHistory = new Map<
+    string,
+    Map<string, { added: number; removed: number; churnReported: boolean }>
+  >();
+
   /** 历史最大单次删除行数 */
   private maxDeletedLines: number;
+
+  /** 最近一次“连续凌晨”提醒的日期 */
+  private lastStreakReportDay?: string;
+
+  /** 最近一次“模式发现”提醒的键 */
+  private lastPatternReportKey?: string;
+
+  /** 当前配置快照 */
+  private config: TrackerConfig;
 
   private store: DecisionStore;
 
   constructor(store: DecisionStore) {
     this.store = store;
+    this.config = readConfig();
     this.maxDeletedLines = this.getHistoricalMaxDeletedLines();
+  }
+
+  /** 更新配置（由扩展在配置变更时调用） */
+  updateConfig(config: TrackerConfig): void {
+    this.config = config;
+  }
+
+  /** 处理文档打开事件：记录打开时间，用于“空手而归” */
+  onDidOpenTextDocument(doc: vscode.TextDocument): void {
+    if (doc.uri.scheme !== 'file' || isExcluded(doc.fileName, this.config)) {
+      return;
+    }
+    this.openedDocs.set(doc.fileName, { openedAt: Date.now(), saved: false });
+  }
+
+  /** 处理文档关闭事件：打开期间未产生任何改动则记为“空手而归” */
+  onDidCloseTextDocument(doc: vscode.TextDocument): void {
+    const filePath = doc.fileName;
+    const opened = this.openedDocs.get(filePath);
+    this.openedDocs.delete(filePath);
+
+    if (!opened || opened.saved || isExcluded(filePath, this.config)) {
+      return;
+    }
+    if (this.isDisabled('empty-handed')) {
+      return;
+    }
+
+    const dwellMinutes = Math.max(1, Math.floor((Date.now() - opened.openedAt) / 60_000));
+    if (dwellMinutes < 1) {
+      return;
+    }
+
+    const ctx: TemplateContext = {
+      fileName: this.getShortFileName(filePath),
+      lines: 0,
+      count: 1,
+      hour: new Date().getHours(),
+      language: this.getLanguage(filePath),
+      lifetime: this.formatLifetime(dwellMinutes),
+    };
+    this.store.addRecord(this.buildSimpleRecord(filePath, 'empty-handed', ctx));
   }
 
   /** 处理文档保存事件 */
@@ -55,6 +120,10 @@ export class DecisionTracker {
     const filePath = doc.fileName;
     const newContent = doc.getText();
     const oldContent = this.snapshots.get(filePath);
+
+    if (isExcluded(filePath, this.config)) {
+      return;
+    }
 
     if (oldContent === undefined) {
       this.snapshots.set(filePath, newContent);
@@ -69,7 +138,9 @@ export class DecisionTracker {
       if (this.shouldEmitIntroRecord()) {
         const hour = new Date().getHours();
         const actionType = hour >= 5 && hour <= 9 ? 'early-morning' : 'start-working';
-        this.store.addRecord(this.createSimpleRecord(filePath, actionType));
+        if (!this.isDisabled(actionType)) {
+          this.store.addRecord(this.createSimpleRecord(filePath, actionType));
+        }
       }
       return;
     }
@@ -81,6 +152,16 @@ export class DecisionTracker {
     const diff = this.computeDiff(oldContent.split('\n'), newContent.split('\n'));
     if (diff.removed.length === 0 && diff.added.length === 0) {
       return;
+    }
+
+    // 低于最小改动行数阈值，视为琐碎变更不记录
+    if (diff.removed.length + diff.added.length < this.config.minChangedLines) {
+      return;
+    }
+
+    const openedDoc = this.openedDocs.get(filePath);
+    if (openedDoc) {
+      openedDoc.saved = true;
     }
 
     const prevMeta = this.fileMeta.get(filePath);
@@ -106,8 +187,15 @@ export class DecisionTracker {
     this.trackMultiFile(filePath);
 
     for (const record of this.classifyActions(diff, doc, oldContent, prevMeta)) {
-      this.store.addRecord(record);
+      if (!this.isDisabled(record.actionType)) {
+        this.store.addRecord(record);
+      }
     }
+  }
+
+  /** 事件类型是否被用户禁用 */
+  private isDisabled(type: ActionType): boolean {
+    return this.config.disabledEvents.includes(type);
   }
 
   /** 获取当天键值（本地时间） */
@@ -333,37 +421,77 @@ export class DecisionTracker {
     return line.replace(/\s+/g, ' ').trim();
   }
 
-  /** 检测是否为测试文件 */
+  /**
+   * 检测是否为测试文件。
+   * 按「目录约定 + 命名约定」判断，而非路径子串匹配，
+   * 避免 latest-update.ts / inspect.ts / contest.ts / perspective.ts 之类被误判。
+   */
   private isTestFile(filePath: string): boolean {
-    const lower = filePath.toLowerCase();
-    return (
-      lower.includes('test') ||
-      lower.includes('spec') ||
-      lower.includes('__tests__') ||
-      lower.endsWith('.test.ts') ||
-      lower.endsWith('.test.js') ||
-      lower.endsWith('.spec.ts') ||
-      lower.endsWith('.spec.js')
-    );
-  }
+    const normalized = filePath.replace(/\\/g, '/');
+    const segments = normalized.split('/');
+    const fileName = segments[segments.length - 1] || '';
+    const lowerName = fileName.toLowerCase();
 
-  /** 检测配置类文件 */
-  private isConfigFile(filePath: string): boolean {
-    const lower = filePath.toLowerCase();
-    if (
-      lower.endsWith('.json') ||
-      lower.endsWith('.yaml') ||
-      lower.endsWith('.yml') ||
-      lower.endsWith('.toml') ||
-      lower.endsWith('.ini') ||
-      lower.endsWith('.conf') ||
-      lower.endsWith('.config') ||
-      lower.endsWith('.xml') ||
-      lower.endsWith('.env')
-    ) {
+    // 1) 目录约定：test/ tests/ __tests__/ spec/ e2e/ cypress/ ...
+    const testDir = /^(__tests__|__mocks__|__snapshots__|tests?|specs?|e2e|testing|cypress)$/;
+    if (segments.slice(0, -1).some((seg) => testDir.test(seg.toLowerCase()))) {
       return true;
     }
-    return /(^|[\\/])\.[a-z0-9_-]+rc$/.test(lower);
+
+    // 2) 点号后缀约定：foo.test.ts / foo.spec.tsx / foo.cy.js
+    if (/\.(test|spec|tests|cy)\.[a-z0-9]+$/i.test(lowerName)) {
+      return true;
+    }
+
+    // 3) 下划线后缀约定：foo_test.py / foo_spec.rb / foo_test.go
+    if (/_(test|spec)s?\.[a-z0-9]+$/i.test(lowerName)) {
+      return true;
+    }
+
+    // 4) 大驼峰约定：FooTest.java / FooTests.cs / FooSpec.kt
+    //    要求 Test/Spec 首字母大写，天然避开 latest / contest / inspect / perspective
+    const baseName = fileName.replace(/\.[a-z0-9]+$/i, '');
+    if (/(?:^|[A-Za-z0-9])(?:Tests?|Specs?)$/.test(baseName)) {
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * 检测配置类文件。
+   * 仅在扩展名或文件名明显是配置时才判定，
+   * 避免把 data.json / users.json / feed.xml 这类数据文件当成配置。
+   */
+  private isConfigFile(filePath: string): boolean {
+    const normalized = filePath.replace(/\\/g, '/').toLowerCase();
+    const fileName = normalized.split('/').pop() || '';
+
+    // 点 rc 风格：.eslintrc / .prettierrc / .babelrc / .eslintrc.json
+    if (/^\.[a-z0-9_-]+rc(\.[a-z0-9]+)?$/.test(fileName)) {
+      return true;
+    }
+
+    // 环境变量文件：.env / .env.local / .env.production
+    if (/^\.env(\.[a-z0-9_-]+)?$/.test(fileName)) {
+      return true;
+    }
+
+    // 明确的配置类扩展名
+    if (/\.(ya?ml|toml|ini|cfg|conf|properties|editorconfig)$/.test(fileName)) {
+      return true;
+    }
+
+    // JSON 仅在文件名明显是配置时才算配置
+    if (fileName.endsWith('.json')) {
+      return (
+        /^(tsconfig|jsconfig|package|composer|bower|angular|nest-cli|tslint|eslint|prettier|babel|jest|vitest|nodemon|vercel|netlify)/.test(
+          fileName
+        ) || /(config|settings|manifest|options)(\.[a-z0-9]+)?\.json$/.test(fileName)
+      );
+    }
+
+    return false;
   }
 
   /** 检测被删内容中是否包含函数定义 */
@@ -456,6 +584,400 @@ export class DecisionTracker {
   /** 是否为清理 TODO/FIXME 等标记 */
   private isTodoCleanup(removed: string[]): boolean {
     return removed.some((line) => /\b(TODO|FIXME|HACK|XXX|BUG|TEMP)\b/i.test(line));
+  }
+
+  /** 新增内容是否写下了 TODO/FIXME */
+  private isTodoAdded(added: string[]): boolean {
+    return added.some((line) => /\b(TODO|FIXME|HACK|XXX)\b/i.test(line));
+  }
+
+  /** 提取 TODO/FIXME 等标记名 */
+  private detectTodoMarker(lines: string[]): string | undefined {
+    for (const line of lines) {
+      const match = line.match(/\b(TODO|FIXME|HACK|XXX|BUG|TEMP)\b/i);
+      if (match) {
+        return match[1].toUpperCase();
+      }
+    }
+    return undefined;
+  }
+
+  /** 整个文件是否被清空 */
+  private isEmptyFile(diff: DiffResult, doc: vscode.TextDocument): boolean {
+    if (diff.removed.length === 0) {
+      return false;
+    }
+    // 空文件经过 split('\n') 会得到一个空行，需按“是否有非空内容”判断
+    if (diff.added.some((line) => line.trim().length > 0)) {
+      return false;
+    }
+    return doc.getText().trim().length === 0;
+  }
+
+  /** 是否为依赖清单文件 */
+  private isDependencyFile(filePath: string): boolean {
+    const name = (filePath.replace(/\\/g, '/').split('/').pop() || '').toLowerCase();
+    return [
+      'package.json',
+      'requirements.txt',
+      'pipfile',
+      'cargo.toml',
+      'go.mod',
+      'gemfile',
+      'pom.xml',
+      'build.gradle',
+      'composer.json',
+    ].includes(name);
+  }
+
+  /** 变更行是否像依赖声明 */
+  private looksLikeDependencyChange(removed: string[], added: string[]): boolean {
+    const lines = [...removed, ...added].map((line) => line.trim()).filter((line) => line.length > 0);
+    if (lines.length === 0) {
+      return false;
+    }
+    const depLike = lines.filter(
+      (line) =>
+        /^"?[a-z@][\w@./-]*"?\s*:/.test(line) ||
+        /^[a-z0-9][\w.-]*\s*(==|>=|<=|~=|>|<|\^|~)/.test(line) ||
+        /^(dependencies|devDependencies|peerDependencies|require|replace|version)\b/.test(line)
+    ).length;
+    return depLike >= Math.ceil(lines.length * 0.5);
+  }
+
+  /** 从依赖变更中猜测包名 */
+  private extractDependencyName(removed: string[], added: string[]): string | undefined {
+    for (const line of [...added, ...removed]) {
+      const match =
+        line.match(/^\s*"([^"]+)"\s*:/) || line.match(/^\s*([A-Za-z0-9@._-]+)\s*(==|>=|<=|~=|>|<)/);
+      if (match && !/^(dependencies|devDependencies|peerDependencies|scripts|version|name)$/.test(match[1])) {
+        return match[1];
+      }
+    }
+    return undefined;
+  }
+
+  /** 删除内容是否以错误处理为主（try/catch/throw/异常上报） */
+  private isErrorHandlingRemoval(removed: string[]): boolean {
+    if (removed.length < 2) {
+      return false;
+    }
+    const matches = removed.filter(
+      (line) =>
+        /\btry\s*\{/.test(line) ||
+        /\bcatch\b/.test(line) ||
+        /\bfinally\b/.test(line) ||
+        /\.catch\s*\(/.test(line) ||
+        /\bthrow\s+/.test(line) ||
+        /logger?\.(error|warn|fatal)/.test(line) ||
+        /reportError|trackError|logError|Sentry|Bugsnag/.test(line) ||
+        /\bexception\b/i.test(line)
+    ).length;
+    return matches >= 2 && matches >= Math.ceil(removed.length * 0.4);
+  }
+
+  /** 删除内容是否像防御性判断，返回描述 */
+  private detectGuardRemoval(removed: string[]): string | undefined {
+    if (removed.length === 0 || removed.length > 6) {
+      return undefined;
+    }
+    const text = removed.join('\n');
+    if (/\bfunction\b|=>\s*\{/.test(text)) {
+      return undefined;
+    }
+    if (/if\s*\(\s*!\s*\w+\s*\)\s*(return|\{)/.test(text)) {
+      return '空值判断';
+    }
+    if (/if\s*\([^)]*(==|===)\s*(null|undefined|void 0)/.test(text)) {
+      return 'null 判断';
+    }
+    if (/\?\?|\?\./.test(text)) {
+      return '可选链兜底';
+    }
+    if (/if\s*\([^)]*\.length\s*(===|==|<=|>)\s*0/.test(text)) {
+      return '边界判断';
+    }
+    if (/\bassert\b|throw\s+new\s+\w*Error/.test(text)) {
+      return '兜底断言';
+    }
+    return undefined;
+  }
+
+  /** 去掉行首注释符号，返回被注释的原始代码 */
+  private stripCommentPrefix(line: string): string {
+    const trimmed = line.trim();
+    if (trimmed.startsWith('//')) {
+      return trimmed.slice(2).trim();
+    }
+    if (trimmed.startsWith('/*') && trimmed.endsWith('*/') && trimmed.length > 4) {
+      return trimmed.slice(2, -2).trim();
+    }
+    if (trimmed.startsWith('<!--') && trimmed.endsWith('-->') && trimmed.length > 7) {
+      return trimmed.slice(4, -3).trim();
+    }
+    if (/^#\s/.test(trimmed)) {
+      return trimmed.slice(1).trim();
+    }
+    if (/^--\s/.test(trimmed)) {
+      return trimmed.slice(2).trim();
+    }
+    return '';
+  }
+
+  /** 是否为“把代码注释掉” */
+  private isCommentOutCode(removed: string[], added: string[]): boolean {
+    return this.isCommentToggle(removed, added, true);
+  }
+
+  /** 是否为“取消注释恢复代码” */
+  private isUncommentCode(removed: string[], added: string[]): boolean {
+    return this.isCommentToggle(removed, added, false);
+  }
+
+  /**
+   * 判定注释/取消注释。
+   * commented=true 时新增行应为删除行的注释版本（注释掉代码）；
+   * commented=false 时删除行应为新增行的注释版本（取消注释）。
+   */
+  private isCommentToggle(removed: string[], added: string[], commented: boolean): boolean {
+    const plain = commented ? removed : added;
+    const marked = commented ? added : removed;
+    if (plain.length < 2 || marked.length < 2) {
+      return false;
+    }
+    if (Math.abs(plain.length - marked.length) > Math.max(1, plain.length * 0.3)) {
+      return false;
+    }
+    const count = Math.min(plain.length, marked.length);
+    let matched = 0;
+    for (let i = 0; i < count; i++) {
+      const code = plain[i].trim();
+      const stripped = this.stripCommentPrefix(marked[i]);
+      if (code.length === 0 || stripped.length === 0) {
+        continue;
+      }
+      if (code === stripped) {
+        matched++;
+      }
+    }
+    return matched >= 2 && matched >= Math.ceil(count * 0.6);
+  }
+
+  /** 变更是否全部是 import/require/include 语句 */
+  private isImportChange(removed: string[], added: string[]): boolean {
+    const lines = [...removed, ...added].map((line) => line.trim()).filter((line) => line.length > 0);
+    if (lines.length === 0) {
+      return false;
+    }
+    const importLike = (line: string): boolean =>
+      /^import\s/.test(line) ||
+      /^from\s+['"].+['"]\s+import\b/.test(line) ||
+      /^require\s*\(/.test(line) ||
+      /^(const|let|var)\s+.+=\s*require\(/.test(line) ||
+      /^#include\s/.test(line) ||
+      /^(use|extern crate|mod)\s+[A-Za-z]/.test(line) ||
+      /^using\s+[A-Za-z]/.test(line);
+    const count = lines.filter(importLike).length;
+    return count >= 1 && count >= Math.ceil(lines.length * 0.8);
+  }
+
+  /** 是否像一次大范围重命名：多个 1:1 差异块，仅标识符不同 */
+  private isRenameRefactor(diff: DiffResult): boolean {
+    if (diff.hunks.length < 3) {
+      return false;
+    }
+    let renameLike = 0;
+    for (const hunk of diff.hunks) {
+      if (hunk.removed.length !== 1 || hunk.added.length !== 1) {
+        continue;
+      }
+      if (this.isIdentifierOnlyChange(hunk.removed[0], hunk.added[0])) {
+        renameLike++;
+      }
+    }
+    return renameLike >= 3 && renameLike >= Math.ceil(diff.hunks.length * 0.6);
+  }
+
+  /** 两行是否仅有一个标识符不同 */
+  private isIdentifierOnlyChange(before: string, after: string): boolean {
+    const tokenPattern = /[A-Za-z_$][\w$]*|\d+|\S/g;
+    const beforeTokens = before.match(tokenPattern) || [];
+    const afterTokens = after.match(tokenPattern) || [];
+    if (beforeTokens.length !== afterTokens.length || beforeTokens.length < 3) {
+      return false;
+    }
+    let diffIndex = -1;
+    for (let i = 0; i < beforeTokens.length; i++) {
+      if (beforeTokens[i] !== afterTokens[i]) {
+        if (diffIndex !== -1) {
+          return false;
+        }
+        diffIndex = i;
+      }
+    }
+    if (diffIndex === -1) {
+      return false;
+    }
+    const identifier = /^[A-Za-z_$][\w$]*$/;
+    return identifier.test(beforeTokens[diffIndex]) && identifier.test(afterTokens[diffIndex]);
+  }
+
+  /** 记录函数增删，返回发生反复增删的函数名 */
+  private trackFunctionChurn(
+    filePath: string,
+    removed: string[],
+    added: string[]
+  ): string | undefined {
+    const addedFns = this.detectFunctionNames(added);
+    const removedFns = this.detectFunctionNames(removed);
+    if (addedFns.length === 0 && removedFns.length === 0) {
+      return undefined;
+    }
+
+    let perFile = this.functionHistory.get(filePath);
+    if (!perFile) {
+      perFile = new Map();
+      this.functionHistory.set(filePath, perFile);
+    }
+
+    for (const name of addedFns) {
+      const entry = perFile.get(name) ?? { added: 0, removed: 0, churnReported: false };
+      entry.added++;
+      perFile.set(name, entry);
+    }
+
+    let churned: string | undefined;
+    for (const name of removedFns) {
+      const entry = perFile.get(name) ?? { added: 0, removed: 0, churnReported: false };
+      entry.removed++;
+      perFile.set(name, entry);
+      if (!entry.churnReported && entry.added >= 2 && entry.removed >= 2) {
+        entry.churnReported = true;
+        churned = name;
+      }
+    }
+    return churned;
+  }
+
+  /** 提取代码行中的函数名 */
+  private detectFunctionNames(lines: string[]): string[] {
+    const names: string[] = [];
+    const patterns = [
+      /\bfunction\s+([A-Za-z_$][\w$]*)/g,
+      /\bdef\s+([A-Za-z_$][\w$]*)/g,
+      /\bfn\s+([A-Za-z_$][\w$]*)/g,
+      /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?(?:function|\()/g,
+      /^\s*(?:public|private|protected|static|async|\s)*([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*\{/g,
+    ];
+    for (const line of lines) {
+      for (const pattern of patterns) {
+        pattern.lastIndex = 0;
+        let match: RegExpExecArray | null;
+        while ((match = pattern.exec(line)) !== null) {
+          if (match[1] && !names.includes(match[1])) {
+            names.push(match[1]);
+          }
+        }
+      }
+    }
+    return names;
+  }
+
+  /** 连续凌晨编码天数（含今天，从历史记录推导） */
+  private getLateNightStreakDays(): number {
+    const nightDays = new Set<string>();
+    for (const record of this.store.getRecords()) {
+      const hour = new Date(record.timestamp).getHours();
+      if (record.actionType === 'late-night' || record.actionType === 'late-night-streak' || (hour >= 0 && hour < 5)) {
+        nightDays.add(this.getDayKey(record.timestamp));
+      }
+    }
+
+    nightDays.add(this.getDayKey());
+
+    let streak = 0;
+    const cursor = new Date();
+    while (streak < 30) {
+      if (!nightDays.has(this.getDayKey(cursor.getTime()))) {
+        break;
+      }
+      streak++;
+      cursor.setDate(cursor.getDate() - 1);
+    }
+    return streak;
+  }
+
+  /** 将小时划分为时段 */
+  private getTimeBucket(hour: number): { key: string; label: string } {
+    if (hour < 5) {
+      return { key: 'dawn', label: '凌晨' };
+    }
+    if (hour < 12) {
+      return { key: 'morning', label: '上午' };
+    }
+    if (hour < 18) {
+      return { key: 'afternoon', label: '下午' };
+    }
+    return { key: 'evening', label: '晚上' };
+  }
+
+  /** 模式发现：同一星期几 + 同一时段反复推翻自己的代码 */
+  private detectPattern():
+    | { weekday: string; timeBucket: string; patternCount: number }
+    | undefined {
+    const now = new Date();
+    const weekday = DecisionTracker.WEEKDAY_LABELS[now.getDay()];
+    const bucket = this.getTimeBucket(now.getHours());
+    const reportKey = `${now.getDay()}-${bucket.key}`;
+    if (this.lastPatternReportKey === reportKey) {
+      return undefined;
+    }
+
+    const countingTypes: ActionType[] = [
+      'delete-function',
+      'delete-bulk',
+      'delete-small',
+      'back-to-origin',
+      'replace-solution',
+      'refactor',
+      'delete-old-code',
+      'delete-guard',
+      'delete-error-handling',
+    ];
+
+    const count = this.store.getRecords().filter((record) => {
+      if (!countingTypes.includes(record.actionType)) {
+        return false;
+      }
+      const date = new Date(record.timestamp);
+      return date.getDay() === now.getDay() && this.getTimeBucket(date.getHours()).key === bucket.key;
+    }).length;
+
+    if (count >= 4) {
+      this.lastPatternReportKey = reportKey;
+      return { weekday, timeBucket: bucket.label, patternCount: count + 1 };
+    }
+    return undefined;
+  }
+
+  /** 自相矛盾：写回的代码块与近期（1 小时前至 7 天内）删除过的代码一致 */
+  private isSelfContradiction(added: string[]): boolean {
+    const block = added.map((line) => line.trim()).filter((line) => line.length > 0);
+    if (block.length < 3) {
+      return false;
+    }
+    const signature = block.join('\n');
+    const now = Date.now();
+    return this.store.getRecords().some((record) => {
+      if (record.deletedLines < block.length) {
+        return false;
+      }
+      const age = now - record.timestamp;
+      if (age < 60 * 60 * 1000 || age > 7 * 24 * 60 * 60 * 1000) {
+        return false;
+      }
+      return record.contextSnippet.includes(signature);
+    });
   }
 
   /** 是否回到原点：当前内容与历史某个旧版本完全相同 */
@@ -649,21 +1171,29 @@ export class DecisionTracker {
 
   /** 创建一条简单记录（开工、存盘等无 diff 事件） */
   private createSimpleRecord(filePath: string, actionType: ActionType): DecisionRecord {
-    const hour = new Date().getHours();
     const ctx: TemplateContext = {
       fileName: this.getShortFileName(filePath),
       lines: 0,
       count: 1,
-      hour,
+      hour: new Date().getHours(),
       language: this.getLanguage(filePath),
     };
-    const message = generateMessage(actionType, ctx);
+    return this.buildSimpleRecord(filePath, actionType, ctx);
+  }
+
+  /** 构建不带 diff 的简单记录 */
+  private buildSimpleRecord(
+    filePath: string,
+    actionType: ActionType,
+    ctx: TemplateContext
+  ): DecisionRecord {
+    const message = generateMessage(actionType, ctx, this.config.toneStyle);
 
     return {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       timestamp: Date.now(),
       filePath,
-      fileName: this.getShortFileName(filePath),
+      fileName: ctx.fileName,
       actionType,
       deletedLines: 0,
       addedLines: 0,
@@ -738,27 +1268,49 @@ export class DecisionTracker {
       records.push(this.buildRecord(filePath, type, diff, { ...ctx, ...overrides }, oldContent));
     };
 
+    // 预先计算被删内容的防御性判断类型
+    const guardKind =
+      removedCount > 0 && addedCount === 0 ? this.detectGuardRemoval(removed) : undefined;
+
     // 主分类：从具体到通用
-    if (diff.isFormatOnly) {
+    if (this.isEmptyFile(diff, doc)) {
+      addMain('empty-file');
+    } else if (diff.isFormatOnly) {
       addMain('format-only');
+    } else if (this.isDependencyFile(filePath) && this.looksLikeDependencyChange(removed, added)) {
+      addMain('dependency-change', { dependency: this.extractDependencyName(removed, added) });
     } else if (removedCount > 0 && addedCount === 0 && this.isTestFile(filePath)) {
       addMain('delete-test');
     } else if (removedCount > 0 && addedCount > 0 && this.isTestFile(filePath)) {
       addMain('test-edit');
+    } else if (removedCount > 0 && addedCount === 0 && ctx.fnName) {
+      addMain('delete-function');
+    } else if (removedCount >= 2 && removedCount >= addedCount && this.isErrorHandlingRemoval(removed)) {
+      addMain('delete-error-handling');
+    } else if (guardKind) {
+      addMain('delete-guard', { guardKind });
     } else if (this.isDebugCleanup(removed, added)) {
       addMain('debug-cleanup');
     } else if (removedCount > 0 && addedCount === 0 && this.isTodoCleanup(removed)) {
-      addMain('todo-cleanup');
+      addMain('todo-cleanup', { marker: this.detectTodoMarker(removed) });
     } else if (removedCount > 0 && addedCount === 0 && this.isCommentOnly(removed)) {
       addMain('delete-comment', { commentCount: this.countCommentLines(removed) });
+    } else if (this.isCommentOutCode(removed, added)) {
+      addMain('comment-out-code');
+    } else if (this.isUncommentCode(removed, added)) {
+      addMain('uncomment-code');
+    } else if (removedCount === 0 && addedCount > 0 && this.isTodoAdded(added)) {
+      addMain('add-todo', { marker: this.detectTodoMarker(added) });
     } else if (removedCount === 0 && addedCount > 0 && this.isCommentAddition(added)) {
       addMain('add-comment', { commentCount: this.countCommentLines(added) });
+    } else if (this.isImportChange(removed, added)) {
+      addMain('import-change');
+    } else if (this.isRenameRefactor(diff)) {
+      addMain('rename-refactor');
     } else if (this.isCopyPaste(diff, oldContent, filePath)) {
       addMain('copy-paste', { duplicated: addedCount });
     } else if (removedCount === 0 && addedCount >= 3) {
       addMain('add-code');
-    } else if (removedCount > 0 && addedCount === 0 && ctx.fnName) {
-      addMain('delete-function');
     } else if (removedCount > 0 && addedCount === 0 && deletedAgeDays >= 1) {
       addMain('delete-old-code', { lifetime: `${Math.floor(deletedAgeDays)} 天` });
     } else if (removedCount >= 10 && addedCount === 0) {
@@ -830,6 +1382,39 @@ export class DecisionTracker {
       }
     }
 
+    // 元事件：函数反复增删
+    const churnName = this.trackFunctionChurn(filePath, removed, added);
+    if (churnName) {
+      records.push(
+        this.buildRecord(filePath, 'function-churn', diff, { ...ctx, fnName: churnName }, oldContent)
+      );
+    }
+
+    // 元事件：连续凌晨编码
+    if (isLateNight) {
+      const streak = this.getLateNightStreakDays();
+      const today = this.getDayKey();
+      if (streak >= 3 && this.lastStreakReportDay !== today) {
+        this.lastStreakReportDay = today;
+        records.push(
+          this.buildRecord(filePath, 'late-night-streak', diff, { ...ctx, streak }, oldContent)
+        );
+      }
+    }
+
+    // 元事件：模式发现（同一星期几 + 同一时段反复推翻）
+    const pattern = this.detectPattern();
+    if (pattern) {
+      records.push(
+        this.buildRecord(filePath, 'pattern-discovery', diff, { ...ctx, ...pattern }, oldContent)
+      );
+    }
+
+    // 元事件：自相矛盾（写回之前删过的代码）
+    if (removedCount === 0 && addedCount >= 3 && this.isSelfContradiction(added)) {
+      records.push(this.buildRecord(filePath, 'self-contradiction', diff, ctx, oldContent));
+    }
+
     return records;
   }
 
@@ -841,11 +1426,7 @@ export class DecisionTracker {
     ctx: TemplateContext,
     oldContent: string
   ): DecisionRecord {
-    const style = vscode.workspace
-      .getConfiguration('decisionArchaeologist')
-      .get<string>('toneStyle', 'balanced') || 'balanced';
-
-    const message = generateMessage(actionType, ctx, style);
+    const message = generateMessage(actionType, ctx, this.config.toneStyle);
 
     return {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -867,5 +1448,7 @@ export class DecisionTracker {
     this.fileMeta.clear();
     this.contentHistory.clear();
     this.recentSaves.clear();
+    this.openedDocs.clear();
+    this.functionHistory.clear();
   }
 }

@@ -2,7 +2,7 @@
   "name": "code-archaeology-record",
   "displayName": "代码考古 (Code Archaeology)",
   "description": "记录你写代码时放弃过的路——每一次删除、替换、重构，都是你的决策化石",
-  "version": "0.1.3",
+  "version": "0.2.0",
   "publisher": "zzzmaster",
   "license": "MIT",
   "engines": {
@@ -80,6 +80,111 @@
           "minimum": 100,
           "maximum": 10000,
           "description": "最大保留记录数"
+        },
+        "decisionArchaeologist.minChangedLines": {
+          "type": "integer",
+          "default": 1,
+          "minimum": 1,
+          "maximum": 100,
+          "description": "单次改动的总行数低于该值时不予记录，用于过滤琐碎变更"
+        },
+        "decisionArchaeologist.retentionDays": {
+          "type": "integer",
+          "default": 0,
+          "minimum": 0,
+          "maximum": 3650,
+          "description": "记录保留天数，0 表示不按时间清理"
+        },
+        "decisionArchaeologist.exclude": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "**/node_modules/**",
+            "**/bower_components/**",
+            "**/out/**",
+            "**/dist/**",
+            "**/build/**",
+            "**/coverage/**",
+            "**/.git/**",
+            "**/.svn/**",
+            "**/.hg/**",
+            "**/target/**",
+            "**/vendor/**",
+            "**/.venv/**",
+            "**/venv/**",
+            "**/env/**",
+            "**/__pycache__/**",
+            "**/.next/**",
+            "**/.nuxt/**",
+            "**/.cache/**",
+            "**/.idea/**",
+            "**/.vscode-test/**",
+            "**/*.min.js",
+            "**/*.min.css",
+            "**/*.map",
+            "**/package-lock.json",
+            "**/yarn.lock",
+            "**/pnpm-lock.yaml",
+            "**/composer.lock",
+            "**/Cargo.lock"
+          ],
+          "description": "不记录的文件路径 glob 列表（构建产物、依赖目录、锁文件等）"
+        },
+        "decisionArchaeologist.disabledEvents": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "delete-function",
+              "delete-bulk",
+              "delete-small",
+              "delete-test",
+              "delete-old-code",
+              "delete-comment",
+              "delete-guard",
+              "delete-error-handling",
+              "empty-file",
+              "debug-cleanup",
+              "todo-cleanup",
+              "add-code",
+              "add-comment",
+              "add-todo",
+              "replace-solution",
+              "refactor",
+              "tweak",
+              "fix-typo",
+              "format-only",
+              "config-change",
+              "dependency-change",
+              "import-change",
+              "rename-refactor",
+              "test-edit",
+              "copy-paste",
+              "comment-out-code",
+              "uncomment-code",
+              "function-churn",
+              "early-morning",
+              "late-night",
+              "start-working",
+              "back-to-origin",
+              "quick-undo",
+              "back-and-forth",
+              "loop-reminder",
+              "abandonment-cost",
+              "record-break",
+              "sunk-cost",
+              "multi-file",
+              "general",
+              "late-night-streak",
+              "pattern-discovery",
+              "self-contradiction",
+              "empty-handed"
+            ]
+          },
+          "default": [],
+          "description": "需要关闭的事件类型，关闭后不再生成对应记录"
         }
       }
     }
@@ -88,6 +193,7 @@
     "vscode:prepublish": "npm run compile",
     "compile": "echo Compiling TypeScript... && npx tsc -p ./",
     "watch": "npx tsc -watch -p ./",
+    "test": "node test/run-tests.js",
     "lint": "echo No linter configured"
   },
   "devDependencies": {
@@ -97,6 +203,6 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/atomgit/decision-archaeologist"
+    "url": "https://github.com/slzczzz/CodeArchaeology"
   }
 }

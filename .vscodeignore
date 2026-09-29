@@ -3,6 +3,9 @@
 .gitignore
 node_modules/**
 src/**
+test/**
 tsconfig.json
 .gitattributes
-*.ts
+**/*.ts
+**/*.ts.map
+out/**/*.js.map
