@@ -19,6 +19,8 @@ export class DecisionStore implements vscode.Disposable {
   private maxRecords: number;
   private retentionDays: number;
   private saveTimer?: ReturnType<typeof setTimeout>;
+  /** 是否有尚未落盘的改动 */
+  private dirty = false;
   private disposed = false;
   private _onDidUpdate = new vscode.EventEmitter<void>();
   readonly onDidUpdate: vscode.Event<void> = this._onDidUpdate.event;
@@ -157,6 +159,7 @@ export class DecisionStore implements vscode.Disposable {
     if (this.disposed) {
       return;
     }
+    this.dirty = true;
     if (this.saveTimer) {
       clearTimeout(this.saveTimer);
     }
@@ -166,13 +169,17 @@ export class DecisionStore implements vscode.Disposable {
     }, 400);
   }
 
-  /** 立即写盘（用于扩展停用前） */
+  /**
+   * 立即落盘。
+   * 供扩展停用前调用，确保防抖窗口中待写的改动不丢失；
+   * 若无待写改动则不做任何事，因此重复调用是安全的。
+   */
   flush(): void {
     if (this.saveTimer) {
       clearTimeout(this.saveTimer);
       this.saveTimer = undefined;
     }
-    if (!this.disposed) {
+    if (!this.disposed && this.dirty) {
       this.save();
     }
   }
@@ -188,20 +195,19 @@ export class DecisionStore implements vscode.Disposable {
       const tmpPath = `${this.storagePath}.tmp`;
       fs.writeFileSync(tmpPath, JSON.stringify(payload, null, 2), 'utf-8');
       fs.renameSync(tmpPath, this.storagePath);
+      this.dirty = false;
     } catch (e) {
-      // 静默失败
+      // 静默失败，保留 dirty 以便下次重试
     }
   }
 
-  /** 释放资源 */
+  /**
+   * 释放资源。
+   * 先落盘再释放事件发射器；由 context.subscriptions 与 deactivate() 共同触及时，
+   * flush 的去重逻辑保证不会重复写盘。
+   */
   dispose(): void {
-    if (this.saveTimer) {
-      clearTimeout(this.saveTimer);
-      this.saveTimer = undefined;
-    }
-    if (!this.disposed) {
-      this.save();
-    }
+    this.flush();
     this.disposed = true;
     this._onDidUpdate.dispose();
   }

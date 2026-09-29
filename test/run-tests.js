@@ -425,7 +425,15 @@ function hasType(result, type) {
   check('存储写入记录', Array.isArray(raw.records) && raw.records.length === 1);
   check('临时文件已清理', !fs.existsSync(`${storagePath}.tmp`));
   check('单条删除生效', (store.deleteRecord('a'), store.getCount() === 0));
+
+  // flush / dispose 职责分离：dispose 先落盘，重复触发不应再次写盘
   store.dispose();
+  check('dispose 会落盘待写改动', fs.existsSync(storagePath));
+  fs.rmSync(storagePath);
+  store.dispose();
+  check('重复 dispose 不重复写盘', !fs.existsSync(storagePath));
+  store.flush();
+  check('dispose 后 flush 为无操作', !fs.existsSync(storagePath));
 
   // 旧格式（纯数组）兼容
   fs.writeFileSync(storagePath, JSON.stringify([record('legacy', Date.now())]), 'utf-8');

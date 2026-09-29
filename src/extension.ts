@@ -86,9 +86,13 @@ export function activate(context: vscode.ExtensionContext): void {
   console.log('[代码考古] 已就绪');
 }
 
-/** 停用扩展 */
+/**
+ * 停用扩展。
+ * 这里只负责把防抖窗口内待写的记录落盘（dispose 由 context.subscriptions 触发），
+ * 两者职责分离，flush 的 dirty 判断保证不会重复写盘。
+ */
 export function deactivate(): void {
-  activeStore?.dispose();
+  activeStore?.flush();
   activeStore = undefined;
   console.log('[代码考古] 已停用');
 }
